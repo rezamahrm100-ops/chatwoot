@@ -61,6 +61,14 @@ function keyboard(staff) {
   if (config.publicUrl) rows.push([{ text: 'داشبورد مدیریت', web_app: { url: config.publicUrl + '/app' } }]);
   return { inline_keyboard: rows };
 }
+function customerKeyboard() {
+  return { inline_keyboard: [
+    [{ text: 'گفتگو با پشتیبانی', callback_data: 'store:support' }],
+    [{ text: 'پیگیری سفارش از پشتیبان', callback_data: 'store:order' }],
+    [{ text: 'ثبت درخواست', callback_data: 'store:request' }]
+  ] };
+}
+
 async function send(chatId, message, replyMarkup) {
   return telegram('sendMessage', { chat_id: chatId, text: String(message).slice(0, 3900), ...(replyMarkup ? { reply_markup: replyMarkup } : {}) });
 }
@@ -168,8 +176,19 @@ async function incomingTelegram(payload) {
   const staff = chat?.type === 'private' ? await ensureStaff(userId) : null;
   if (!staff) {
     const text = payload.message?.text?.trim();
-    if (chat?.type === 'private' && /^\/start(?:@\w+)?$/.test(text || '')) {
-      await send(chat.id, 'سلام! پیام خود را ارسال کنید تا تیم پشتیبانی پاسخ دهد.');
+    if (chat?.type === 'private' && /^\/(start|help)(?:@\w+)?$/.test(text || '')) {
+      await send(chat.id, 'به پشتیبانی فروشگاه خوش آمدید. برای ارتباط، پیام یا فایل خود را همین‌جا ارسال کنید.', customerKeyboard());
+      return null;
+    }
+    if (chat?.type === 'private' && payload.callback_query?.data?.startsWith('store:')) {
+      const options = {
+        'store:support': 'لطفاً موضوع سؤال یا مشکل خود را ارسال کنید؛ پیام شما به تیم پشتیبانی می‌رسد.',
+        'store:order': 'لطفاً شمارهٔ سفارش و شرح مشکل را ارسال کنید تا پشتیبان بررسی کند. این بخش وضعیت سفارش را به‌طور خودکار استعلام نمی‌کند.',
+        'store:request': 'درخواست خود را در یک پیام ارسال کنید. می‌توانید تصویر یا فایل نیز بفرستید.'
+      };
+      const answer = options[payload.callback_query.data];
+      await telegram('answerCallbackQuery', { callback_query_id: payload.callback_query.id });
+      if (answer) await send(chat.id, answer);
       return null;
     }
     const response = await cw.forwardTelegramUpdate(payload);

@@ -52,11 +52,13 @@ To reverse the routing, set `AUTO_REGISTER_WEBHOOK=false` and reconfigure the or
 
 | Actor | Bot commands / Mini App | Server-side restrictions |
 |---|---|---|
-| Customer | Plain messages, images/files, support replies via Chatwoot | No access to Mini App API, staff commands, or Chatwoot account token |
+| Customer | Plain messages, images/files, support replies via Chatwoot, and support/order-inquiry/request guidance buttons | No access to Mini App API, staff commands, or Chatwoot account token |
 | Owner | `/inbox`, `/reply ID text`, `/note ID text`, `/close ID`, `/open ID`, `/assign ID AGENT_ID`, `/agents`, `/customers`, `/stats` | Explicit Telegram ID allowlist |
 | Agent | `/inbox`, `/reply`, `/note`, `/close`, `/open` | Explicit Telegram ID → Chatwoot agent mapping; conversation assignee checked before every read/write |
 | Owner Mini App | Open conversations, message history, send reply/note, status/assignment, contacts, staff directory | Telegram Mini App signed `initData` (15-minute window), allowlist and live Chatwoot API |
 | Agent Mini App | Own assigned conversations, history, replies/notes/status | All server endpoints enforce mapping/assignment; customer/team tabs hidden and forbidden |
+
+The customer-facing order-inquiry button **only asks for the order number and routes the following message to a human**; automatic order status requires a separately connected store/order system.
 
 The `/stats` bot command reads Chatwoot's conversation list metadata, **not** a full historical analytics engine. Conversation listings are currently **page-limited**, and an assigned conversation outside the first page may not appear in `/inbox`; it can still be addressed by known display ID. Advanced KPIs, sales/orders/payment reconciliation, push notifications to each staff member, and a complete Web-panel feature parity are **not implemented** here. These require additional integrations or supported API surfaces. Chatwoot's own dashboard remains available.
 

@@ -71,7 +71,10 @@ export function assigneeId(conversation) {
 }
 
 export function canAccessConversation(staff, conversation) {
-  return staff?.role === 'owner' || (staff?.role === 'agent' && assigneeId(conversation) === staff.agentId);
+  if (staff?.role === 'owner') return true;
+  const assignedType = conversation?.meta?.assignee_type ?? conversation?.assignee_type;
+  return staff?.role === 'agent' && (!assignedType || assignedType === 'User') &&
+    assigneeId(conversation) === staff.agentId;
 }
 
 export function conversationList(value) {

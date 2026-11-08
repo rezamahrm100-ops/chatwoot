@@ -20,6 +20,7 @@ test('agents only access assigned conversations', () => {
   const agent = { role: 'agent', agentId: 7 };
   assert.equal(canAccessConversation(agent, { meta: { assignee: { id: 7 } } }), true);
   assert.equal(canAccessConversation(agent, { meta: { assignee: { id: 8 } } }), false);
+  assert.equal(canAccessConversation(agent, { meta: { assignee_type: 'AgentBot', assignee: { id: 7 } } }), false);
   assert.equal(canAccessConversation(agent, { meta: {} }), false);
   assert.equal(canAccessConversation({ role: 'owner' }, { meta: {} }), true);
 });
