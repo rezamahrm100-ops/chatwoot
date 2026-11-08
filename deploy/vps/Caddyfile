@@ -1,0 +1,13 @@
+{
+    email {$ACME_EMAIL}
+}
+
+{$CHATWOOT_DOMAIN} {
+    encode zstd gzip
+    reverse_proxy rails:3000
+}
+
+{$BOT_DOMAIN} {
+    encode zstd gzip
+    reverse_proxy telegram-unified-bot:8080
+}
