@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHmac } from 'node:crypto';
-import { parseAgentMap, parseIds, staffFor, verifyTelegramInitData, canAccessConversation, conversationList } from '../src/security.mjs';
+import { parseAgentMap, parseAgentTokens, parseIds, staffFor, verifyTelegramInitData, canAccessConversation, conversationList } from '../src/security.mjs';
 
 test('roles fail closed', () => {
   const owners = parseIds('11, 12');
@@ -9,6 +9,12 @@ test('roles fail closed', () => {
   assert.equal(staffFor('11', owners, agents).role, 'owner');
   assert.deepEqual(staffFor('22', owners, agents), { role: 'agent', telegramId: '22', agentId: 7 });
   assert.equal(staffFor('23', owners, agents), null);
+});
+test('agent token map requires real per-user tokens', () => {
+  assert.equal(parseAgentTokens('{"22":"a-long-agent-user-token"}').get('22'), 'a-long-agent-user-token');
+  assert.throws(() => parseAgentTokens('{"22":true}'));
+  assert.throws(() => parseAgentTokens('{"22":"short"}'));
+  assert.throws(() => parseAgentTokens('[]'));
 });
 test('agents only access assigned conversations', () => {
   const agent = { role: 'agent', agentId: 7 };
@@ -29,6 +35,7 @@ test('signed Telegram Mini App data is accepted, tampering and expiry are reject
   assert.equal(verifyTelegramInitData(encoded.replace('Owner', 'Admin'), botToken, now), null);
   assert.equal(verifyTelegramInitData(encoded, botToken, now + 901), null);
   assert.equal(verifyTelegramInitData(encoded + '&auth_date=' + now, botToken, now), null);
+  assert.equal(verifyTelegramInitData(encoded + '&hash=' + hash, botToken, now), null);
 });
 test('known Chatwoot conversation list shapes supported', () => {
   assert.deepEqual(conversationList({ data: { payload: [{ id: 1 }] } }), [{ id: 1 }]);

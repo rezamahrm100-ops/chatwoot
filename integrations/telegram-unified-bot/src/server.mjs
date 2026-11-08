@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { Chatwoot } from './chatwoot.mjs';
-import { parseAgentMap, parseIds, staffFor, secureEquals, verifyTelegramInitData, canAccessConversation, conversationList } from './security.mjs';
+import { parseAgentMap, parseAgentTokens, parseIds, staffFor, secureEquals, verifyTelegramInitData, canAccessConversation, conversationList } from './security.mjs';
 
 const config = {
   token: process.env.BOT_TOKEN,
@@ -14,6 +14,7 @@ const config = {
   publicUrl: (process.env.PUBLIC_BASE_URL || '').replace(/\/+$/, ''),
   owners: parseIds(process.env.OWNER_TELEGRAM_IDS),
   agents: parseAgentMap(process.env.AGENT_MAP_JSON),
+  agentTokens: parseAgentTokens(process.env.AGENT_API_TOKENS_JSON),
   register: process.env.AUTO_REGISTER_WEBHOOK === 'true',
   port: Number(process.env.PORT || 8080)
 };
@@ -28,9 +29,18 @@ if (!/^[a-zA-Z0-9_-]{1,256}$/.test(config.webhookSecret)) throw Error('Invalid T
 if (!/^\d+$/.test(config.accountId) || Number(config.accountId) < 1) throw Error('Invalid Chatwoot account ID');
 if (config.publicUrl && !/^https:\/\//i.test(config.publicUrl)) throw Error('PUBLIC_BASE_URL must use HTTPS');
 if (config.register && !config.publicUrl) throw Error('PUBLIC_BASE_URL is required to register webhook');
+for (const telegramId of config.agents.keys()) {
+  if (!config.agentTokens.has(telegramId)) {
+    throw Error('Missing agent API token for mapped Telegram ID ' + telegramId);
+  }
+}
 
 const cw = new Chatwoot(config.baseUrl, config.accountId, config.apiToken, config.token);
 const telegramBase = 'https://api.telegram.org/bot' + config.token;
+function clientFor(staff) {
+  const token = staff.role === 'owner' ? config.apiToken : config.agentTokens.get(staff.telegramId);
+  return new Chatwoot(config.baseUrl, config.accountId, token, config.token);
+}
 const here = dirname(fileURLToPath(import.meta.url));
 
 async function telegram(method, data) {
@@ -66,7 +76,7 @@ async function ensureStaff(userId) {
   return staff;
 }
 async function conversationFor(staff, id) {
-  const conversation = await cw.conversation(id);
+  const conversation = await clientFor(staff).conversation(id);
   if (!canAccessConversation(staff, conversation)) {
     const error = Error('Conversation not found or not assigned to you');
     error.status = 403;
@@ -79,7 +89,7 @@ function conversationLabel(c) {
   return '#' + c.id + ' | ' + person + ' | ' + c.status;
 }
 async function listConversations(staff, page = 1, status = 'open') {
-  const data = await cw.conversations(page, status);
+  const data = await clientFor(staff).conversations(page, status);
   const conversations = conversationList(data).filter(item => canAccessConversation(staff, item));
   return { conversations, meta: staff.role === 'owner' ? data.data?.meta ?? {} : {}, page };
 }
@@ -88,6 +98,7 @@ function parseCommand(text) {
   return match ? { command: match[1].toLowerCase(), args: (match[2] || '').trim() } : null;
 }
 async function performStaffAction(staff, input) {
+  const client = clientFor(staff);
   const parsed = parseCommand(input);
   if (!parsed) return 'دستور شناخته نشد. برای راهنما /help را وارد کنید.';
   const { command, args } = parsed;
@@ -106,17 +117,17 @@ async function performStaffAction(staff, input) {
     return conversations.length ? conversations.slice(0, 12).map(conversationLabel).join('\n') : 'در صفحهٔ نخست گفتگوی مجازی نمایش داده نمی‌شود.';
   }
   if (command === 'agents' && staff.role === 'owner') {
-    const value = await cw.agents();
+    const value = await client.agents();
     const records = Array.isArray(value) ? value : (value?.payload ?? []);
     return records.slice(0, 30).map(x => '#' + x.id + ' ' + x.name).join('\n') || 'پشتیبانی ثبت نشده است.';
   }
   if (command === 'customers' && staff.role === 'owner') {
-    const value = await cw.contacts();
+    const value = await client.contacts();
     const records = value.payload || value.data?.payload || [];
     return records.slice(0, 15).map(x => '#' + x.id + ' ' + (x.name || x.email || 'مشتری')).join('\n') || 'مشتری ثبت نشده است.';
   }
   if (command === 'stats' && staff.role === 'owner') {
-    const data = await cw.conversations(1, 'open');
+    const data = await client.conversations(1, 'open');
     const meta = data.data?.meta || {};
     return 'گزارش گفتگوهای باز\nکل: ' + (meta.all_count ?? 'نامشخص') +
       '\nارجاع‌داده‌شده: ' + (meta.assigned_count ?? 'نامشخص') +
@@ -129,22 +140,22 @@ async function performStaffAction(staff, input) {
     if (!Number.isSafeInteger(id) || id < 1) return 'شناسهٔ گفتگو نامعتبر است.';
     await conversationFor(staff, id);
     if (command === 'close' || command === 'open') {
-      await cw.setStatus(id, command === 'close' ? 'resolved' : 'open');
+      await client.setStatus(id, command === 'close' ? 'resolved' : 'open');
       return 'وضعیت گفتگو #' + id + ' تغییر کرد.';
     }
     if (command === 'assign') {
       if (staff.role !== 'owner') return 'دسترسی ندارید.';
       if (!/^\d+$/.test(match[2] || '')) return 'شناسهٔ پشتیبان را وارد کنید.';
       const agentId = Number(match[2]);
-      const values = await cw.agents();
+      const values = await client.agents();
       const records = Array.isArray(values) ? values : values.payload || [];
       if (!records.some(agent => Number(agent.id) === agentId)) return 'پشتیبان معتبر نیست.';
-      await cw.assign(id, agentId);
+      await client.assign(id, agentId);
       return 'گفتگو #' + id + ' ارجاع داده شد.';
     }
     const content = (match[2] || '').trim();
     if (!content || content.length > 4000) return 'متن پاسخ باید ۱ تا ۴۰۰۰ نویسه باشد.';
-    await cw.reply(id, content, command === 'note');
+    await client.reply(id, content, command === 'note');
     return (command === 'note' ? 'یادداشت ثبت شد: #' : 'پاسخ ارسال شد: #') + id;
   }
   return 'دستور نامعتبر یا خارج از سطح دسترسی. /help';
@@ -161,7 +172,11 @@ async function incomingTelegram(payload) {
       await send(chat.id, 'سلام! پیام خود را ارسال کنید تا تیم پشتیبانی پاسخ دهد.');
       return null;
     }
-    return cw.forwardTelegramUpdate(payload);
+    const response = await cw.forwardTelegramUpdate(payload);
+    if (payload.callback_query && response?.method !== 'answerCallbackQuery') {
+      await telegram('answerCallbackQuery', { callback_query_id: payload.callback_query.id });
+    }
+    return response;
   }
   if (payload.callback_query) {
     const callbackId = payload.callback_query.id;
@@ -216,14 +231,15 @@ function authFromRequest(req) {
 async function api(req, res, url) {
   const staff = authFromRequest(req);
   if (!staff || !(await ensureStaff(staff.telegramId))) return respond(res, 403, { error: 'Access denied' });
+  const client = clientFor(staff);
   if (url.pathname === '/api/me' && req.method === 'GET') return respond(res, 200, staff);
   const page = Math.max(1, Math.min(5, Number(url.searchParams.get('page')) || 1));
   if (url.pathname === '/api/conversations' && req.method === 'GET') {
     const status = ['open', 'resolved', 'pending', 'all'].includes(url.searchParams.get('status')) ? url.searchParams.get('status') : 'open';
     return respond(res, 200, await listConversations(staff, page, status));
   }
-  if (url.pathname === '/api/agents' && req.method === 'GET' && staff.role === 'owner') return respond(res, 200, await cw.agents());
-  if (url.pathname === '/api/contacts' && req.method === 'GET' && staff.role === 'owner') return respond(res, 200, await cw.contacts(page));
+  if (url.pathname === '/api/agents' && req.method === 'GET' && staff.role === 'owner') return respond(res, 200, await client.agents());
+  if (url.pathname === '/api/contacts' && req.method === 'GET' && staff.role === 'owner') return respond(res, 200, await client.contacts(page));
   const match = url.pathname.match(/^\/api\/conversations\/(\d+)(?:\/(messages|reply|note|close|open|assign))?$/);
   if (match) {
     const id = Number(match[1]);
@@ -231,25 +247,25 @@ async function api(req, res, url) {
     const conversation = await conversationFor(staff, id);
     const action = match[2] || '';
     if (req.method === 'GET' && action === '') return respond(res, 200, conversation);
-    if (req.method === 'GET' && action === 'messages') return respond(res, 200, await cw.messages(id));
+    if (req.method === 'GET' && action === 'messages') return respond(res, 200, await client.messages(id));
     if (req.method === 'POST' && ['reply', 'note', 'close', 'open', 'assign'].includes(action)) {
-      if (action === 'close' || action === 'open') return respond(res, 200, await cw.setStatus(id, action === 'close' ? 'resolved' : 'open'));
+      if (action === 'close' || action === 'open') return respond(res, 200, await client.setStatus(id, action === 'close' ? 'resolved' : 'open'));
       const input = await readJson(req);
       if (action === 'assign') {
         if (staff.role !== 'owner') return respond(res, 403, { error: 'Owner only' });
         const agentId = Number(input.agentId);
-        const value = await cw.agents();
+        const value = await client.agents();
         const records = Array.isArray(value) ? value : value.payload || [];
         if (!Number.isSafeInteger(agentId) || !records.some(x => Number(x.id) === agentId)) {
           return respond(res, 400, { error: 'Invalid agent' });
         }
-        return respond(res, 200, await cw.assign(id, agentId));
+        return respond(res, 200, await client.assign(id, agentId));
       }
       const content = input?.content;
       if (typeof content !== 'string' || !content.trim() || content.length > 4000) {
         return respond(res, 400, { error: 'Content must be 1–4000 characters' });
       }
-      return respond(res, 200, await cw.reply(id, content.trim(), action === 'note'));
+      return respond(res, 200, await client.reply(id, content.trim(), action === 'note'));
     }
   }
   return respond(res, 404, { error: 'Not found' });

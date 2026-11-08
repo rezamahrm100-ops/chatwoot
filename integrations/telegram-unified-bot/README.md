@@ -29,6 +29,8 @@ Example:
 - `AGENT_MAP_JSON={"333333333":17}` allows Telegram ID 333333333 to act **only** on conversations assigned to Chatwoot agent ID 17.
 - The agent must still exist in Chatwoot; removing that agent revokes access.
 
+- `AGENT_API_TOKENS_JSON={"333333333":"PASTE_AGENT_USER_API_TOKEN"}`: **required** for each agent mapped in `AGENT_MAP_JSON`. The account owner key is used only for owner actions, agent existence checks and global operations; agent-facing Chatwoot API calls use the assigned agent's actual Chatwoot account token. This ensures messages are attributed to the correct agent and upstream Chatwoot policies also apply. Never use the owner token for agents. The server refuses to start when a configured agent is missing a token.
+
 **Security note:** the adapter uses an owner/admin Chatwoot API key server-side, so access controls are enforced in the adapter and must remain strict. Keep its process and configuration private. Token rotation, Telegram webhook control, and upstream Chatwoot permissions must all be maintained.
 
 ## Docker Compose (example with this fork's production Compose)

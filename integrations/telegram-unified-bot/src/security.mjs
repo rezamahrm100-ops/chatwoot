@@ -17,6 +17,19 @@ export function parseAgentMap(value = '{}') {
   return result;
 }
 
+export function parseAgentTokens(value = '{}') {
+  const parsed = JSON.parse(value);
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw Error('AGENT_API_TOKENS_JSON must be an object');
+  const result = new Map();
+  for (const [telegramId, token] of Object.entries(parsed)) {
+    if (!/^\d+$/.test(telegramId) || typeof token !== 'string' || token.length < 10) {
+      throw Error('AGENT_API_TOKENS_JSON must map Telegram numeric IDs to nonempty user access tokens');
+    }
+    result.set(telegramId, token);
+  }
+  return result;
+}
+
 export function staffFor(userId, owners, agents) {
   const id = String(userId ?? '');
   if (owners.has(id)) return { role: 'owner', telegramId: id };
@@ -29,7 +42,8 @@ export function verifyTelegramInitData(initData, botToken, nowSeconds = Math.flo
   const params = new URLSearchParams(initData);
   const hash = params.get('hash');
   const entries = [...params.entries()].filter(([key]) => key !== 'hash');
-  if (!hash || !/^[0-9a-f]{64}$/i.test(hash) || entries.length !== new Set(entries.map(([key]) => key)).size) return null;
+  if (!hash || params.getAll('hash').length !== 1 || !/^[0-9a-f]{64}$/i.test(hash) ||
+      entries.length !== new Set(entries.map(([key]) => key)).size) return null;
   const authDate = Number(params.get('auth_date'));
   if (!Number.isSafeInteger(authDate) || authDate > nowSeconds + 60 || nowSeconds - authDate > 900) return null;
   const dataCheck = entries.sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => k + '=' + v).join('\n');
