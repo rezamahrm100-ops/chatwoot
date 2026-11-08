@@ -23,6 +23,8 @@ test('uses account-scoped Chatwoot APIs and relays Telegram payload unchanged', 
     await cw.assign(17, 5);
     const original = { update_id: 8, message: { chat: { id: 33, type: 'private' }, text: 'سلام' } };
     await cw.forwardTelegramUpdate(original);
+    await cw.reportSummary();
+    await cw.agentSummary();
     assert.match(requests[0].url, /^\/api\/v1\/accounts\/9\/conversations\?/);
     assert.equal(requests[0].apiToken, 'owner-secret');
     assert.equal(requests[1].method, 'POST');
@@ -33,6 +35,8 @@ test('uses account-scoped Chatwoot APIs and relays Telegram payload unchanged', 
     assert.equal(requests[5].url, '/webhooks/telegram/123%3AABCD');
     assert.deepEqual(JSON.parse(requests[5].body), original);
     assert.equal(requests[5].apiToken, undefined);
+    assert.match(requests[6].url, /^\/api\/v2\/accounts\/9\/reports\/summary\?type=account&since=\d+&until=\d+$/);
+    assert.match(requests[7].url, /^\/api\/v2\/accounts\/9\/summary_reports\/agent\?since=\d+&until=\d+$/);
   } finally {
     await new Promise(resolve => server.close(resolve));
   }

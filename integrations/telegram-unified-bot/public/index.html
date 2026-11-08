@@ -19,11 +19,15 @@
     <button data-tab="conversations" aria-pressed="true">گفتگوها</button>
     <button data-tab="customers" aria-pressed="false">مشتریان</button>
     <button data-tab="team" aria-pressed="false">پشتیبان‌ها</button>
+    <button data-tab="reports" aria-pressed="false">گزارش‌ها</button>
   </nav>
   <main>
     <div id="toolbar" class="toolbar">
       <label>وضعیت <select id="status"><option value="open">باز</option><option value="pending">در انتظار</option><option value="resolved">حل‌شده</option></select></label>
       <button id="reload" class="subtle">بازخوانی</button>
+      <button id="previous" class="subtle">قبلی</button>
+      <span id="page-number" class="meta">۱</span>
+      <button id="next" class="subtle">بعدی</button>
     </div>
     <div id="notice" role="status"></div>
     <section id="items" aria-live="polite"></section>

@@ -112,17 +112,20 @@ async function performStaffAction(staff, input) {
   const { command, args } = parsed;
   if (['start', 'help'].includes(command)) return [
     'پنل اختصاصی فروشگاه',
-    '/inbox — گفتگوهای باز',
+    '/inbox [PAGE] — گفتگوهای باز، با صفحه‌بندی',
     '/reply ID متن — پاسخ به مشتری',
     '/note ID متن — یادداشت داخلی',
     '/close ID — بستن گفتگو',
     '/open ID — بازگشایی گفتگو',
-    ...(staff.role === 'owner' ? ['/assign ID AGENT_ID — ارجاع', '/agents — پشتیبان‌ها', '/customers — مشتریان', '/stats — گزارش'] : []),
+    ...(staff.role === 'owner' ? ['/assign ID AGENT_ID — ارجاع', '/agents — پشتیبان‌ها', '/customers — مشتریان', '/stats — گزارش ۳۰روزه', '/performance — عملکرد پشتیبان‌ها'] : []),
     'برای پاسخ‌گویی، شناسهٔ گفتگو را از /inbox انتخاب کنید.'
   ].join('\n');
   if (['inbox', 'my'].includes(command)) {
-    const { conversations } = await listConversations(staff);
-    return conversations.length ? conversations.slice(0, 12).map(conversationLabel).join('\n') : 'در صفحهٔ نخست گفتگوی مجازی نمایش داده نمی‌شود.';
+    const page = args ? Number(args) : 1;
+    if (!Number.isSafeInteger(page) || page < 1 || page > 1000) return 'شمارهٔ صفحه نامعتبر است.';
+    const { conversations } = await listConversations(staff, page);
+    return conversations.length ? conversations.slice(0, 20).map(conversationLabel).join('\n') :
+      'در این صفحه گفتگویی نمایش داده نمی‌شود.';
   }
   if (command === 'agents' && staff.role === 'owner') {
     const value = await client.agents();
@@ -135,11 +138,21 @@ async function performStaffAction(staff, input) {
     return records.slice(0, 15).map(x => '#' + x.id + ' ' + (x.name || x.email || 'مشتری')).join('\n') || 'مشتری ثبت نشده است.';
   }
   if (command === 'stats' && staff.role === 'owner') {
-    const data = await client.conversations(1, 'open');
-    const meta = data.data?.meta || {};
-    return 'گزارش گفتگوهای باز\nکل: ' + (meta.all_count ?? 'نامشخص') +
-      '\nارجاع‌داده‌شده: ' + (meta.assigned_count ?? 'نامشخص') +
-      '\nبدون پشتیبان: ' + (meta.unassigned_count ?? 'نامشخص');
+    const stats = await client.reportSummary();
+    return 'گزارش واقعی ۳۰ روز گذشته\nگفتگوها: ' + (stats.conversations_count ?? 'نامشخص') +
+      '\nپیام‌های دریافتی: ' + (stats.incoming_messages_count ?? 'نامشخص') +
+      '\nپاسخ‌های ارسالی: ' + (stats.outgoing_messages_count ?? 'نامشخص') +
+      '\nگفتگوهای حل‌شده: ' + (stats.resolutions_count ?? 'نامشخص');
+  }
+  if (command === 'performance' && staff.role === 'owner') {
+    const stats = await client.agentSummary();
+    const agents = await client.agents();
+    const directory = Array.isArray(agents) ? agents : (agents?.payload ?? []);
+    const names = new Map(directory.map(agent => [Number(agent.id), agent.name]));
+    return 'عملکرد پشتیبان‌ها در ۳۰ روز گذشته\n' + (Array.isArray(stats) ? stats.slice(0, 24).map(x =>
+      (names.get(Number(x.id)) || '#' + x.id) + ': ' +
+      (x.conversations_count ?? 0) + ' گفتگو، ' +
+      (x.resolved_conversations_count ?? 0) + ' حل‌شده').join('\n') : 'گزارش در دسترس نیست');
   }
   if (['reply', 'note', 'close', 'open', 'assign'].includes(command)) {
     const match = args.match(/^(\d+)(?:\s+([\s\S]+))?$/);
@@ -252,13 +265,15 @@ async function api(req, res, url) {
   if (!staff || !(await ensureStaff(staff.telegramId))) return respond(res, 403, { error: 'Access denied' });
   const client = clientFor(staff);
   if (url.pathname === '/api/me' && req.method === 'GET') return respond(res, 200, staff);
-  const page = Math.max(1, Math.min(5, Number(url.searchParams.get('page')) || 1));
+  const page = Math.max(1, Math.min(1000, Number(url.searchParams.get('page')) || 1));
   if (url.pathname === '/api/conversations' && req.method === 'GET') {
     const status = ['open', 'resolved', 'pending', 'all'].includes(url.searchParams.get('status')) ? url.searchParams.get('status') : 'open';
     return respond(res, 200, await listConversations(staff, page, status));
   }
   if (url.pathname === '/api/agents' && req.method === 'GET' && staff.role === 'owner') return respond(res, 200, await client.agents());
   if (url.pathname === '/api/contacts' && req.method === 'GET' && staff.role === 'owner') return respond(res, 200, await client.contacts(page));
+  if (url.pathname === '/api/reports/summary' && req.method === 'GET' && staff.role === 'owner') return respond(res, 200, await client.reportSummary());
+  if (url.pathname === '/api/reports/agents' && req.method === 'GET' && staff.role === 'owner') return respond(res, 200, await client.agentSummary());
   const match = url.pathname.match(/^\/api\/conversations\/(\d+)(?:\/(messages|reply|note|close|open|assign))?$/);
   if (match) {
     const id = Number(match[1]);

@@ -1,5 +1,5 @@
 const tg = window.Telegram?.WebApp;
-const state = { tab: 'conversations', conversationId: null, role: null };
+const state = { tab: 'conversations', conversationId: null, role: null, page: 1 };
 const el = id => document.getElementById(id);
 const notice = message => { el('notice').textContent = message; };
 const create = (tag, text, className = '') => {
@@ -35,7 +35,9 @@ function conversationTitle(c) {
   return '#' + c.id + ' — ' + (c.meta?.sender?.name || c.meta?.sender?.phone_number || 'مشتری');
 }
 async function loadConversations() {
-  const data = await api('/conversations?status=' + encodeURIComponent(el('status').value));
+  const data = await api('/conversations?status=' + encodeURIComponent(el('status').value) + '&page=' + state.page);
+  el('page-number').textContent = String(state.page);
+  el('previous').disabled = state.page === 1;
   el('items').replaceChildren();
   if (!data.conversations.length) return empty('گفتگویی در این صفحه یافت نشد.');
   for (const c of data.conversations) {
@@ -121,6 +123,30 @@ async function loadTeam() {
   }
   if (!agents.length) empty('پشتیبانی ثبت نشده است.');
 }
+async function loadReports() {
+  const [summary, performance, agentsResult] = await Promise.all([
+    api('/reports/summary'), api('/reports/agents'), api('/agents')
+  ]);
+  const directory = Array.isArray(agentsResult) ? agentsResult : agentsResult.payload || [];
+  const names = new Map(directory.map(agent => [Number(agent.id), agent.name]));
+  el('items').replaceChildren();
+  const summaryCard = create('article', undefined, 'card');
+  summaryCard.append(create('h3', 'گزارش ۳۰ روز گذشته'));
+  const stats = [
+    ['گفتگوها', summary.conversations_count],
+    ['پیام‌های دریافتی', summary.incoming_messages_count],
+    ['پیام‌های ارسالی', summary.outgoing_messages_count],
+    ['گفتگوهای حل‌شده', summary.resolutions_count]
+  ];
+  for (const [name, value] of stats) summaryCard.append(create('p', name + ': ' + (value ?? 'نامشخص')));
+  el('items').append(summaryCard);
+  for (const item of (Array.isArray(performance) ? performance : [])) {
+    const card = create('article', undefined, 'card');
+    card.append(create('h3', names.get(Number(item.id)) || 'پشتیبان #' + item.id));
+    card.append(create('p', 'گفتگوها: ' + (item.conversations_count ?? 0) + ' | حل‌شده: ' + (item.resolved_conversations_count ?? 0)));
+    el('items').append(card);
+  }
+}
 async function loadTab() {
   el('detail').hidden = true;
   el('toolbar').hidden = state.tab !== 'conversations';
@@ -129,6 +155,7 @@ async function loadTab() {
   }
   if (state.tab === 'conversations') return loadConversations();
   if (state.tab === 'customers') return loadCustomers();
+  if (state.tab === 'reports') return loadReports();
   return loadTeam();
 }
 async function initialize() {
@@ -149,5 +176,7 @@ for (const tab of document.querySelectorAll('[data-tab]')) {
   tab.addEventListener('click', () => task(async () => { state.tab = tab.dataset.tab; await loadTab(); }));
 }
 el('reload').addEventListener('click', () => task(loadTab));
-el('status').addEventListener('change', () => task(loadConversations));
+el('status').addEventListener('change', () => task(async () => { state.page = 1; await loadConversations(); }));
+el('previous').addEventListener('click', () => task(async () => { state.page = Math.max(1, state.page - 1); await loadConversations(); }));
+el('next').addEventListener('click', () => task(async () => { state.page += 1; await loadConversations(); }));
 initialize();
