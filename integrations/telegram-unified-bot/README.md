@@ -27,7 +27,7 @@ Copy `.env.example` to **this directory's** `.env`; populate `BOT_TOKEN`, `CHATW
 Example:
 - `OWNER_TELEGRAM_IDS=111111111,222222222` means either ID has owner-level permissions.
 - `AGENT_MAP_JSON={"333333333":17}` allows Telegram ID 333333333 to act **only** on conversations assigned to Chatwoot agent ID 17.
-- The agent must still exist in Chatwoot; removing that agent revokes access.
+- The agent must still exist in Chatwoot; removing that agent revokes access. Every agent API request also validates `GET /api/v1/profile` to ensure the token's actual Chatwoot user ID matches `AGENT_MAP_JSON`, refusing access on a mismatch.
 
 - `AGENT_API_TOKENS_JSON={"333333333":"PASTE_AGENT_USER_API_TOKEN"}`: **required** for each agent mapped in `AGENT_MAP_JSON`. The account owner key is used only for owner actions, agent existence checks and global operations; agent-facing Chatwoot API calls use the assigned agent's actual Chatwoot account token. This ensures messages are attributed to the correct agent and upstream Chatwoot policies also apply. Never use the owner token for agents. The server refuses to start when a configured agent is missing a token.
 

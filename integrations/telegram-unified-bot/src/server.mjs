@@ -80,6 +80,15 @@ async function ensureStaff(userId) {
     const agents = await cw.agents();
     const records = Array.isArray(agents) ? agents : (agents?.payload ?? []);
     if (!records.some(agent => Number(agent.id) === staff.agentId)) return null;
+    // Never trust a user-supplied agent ID without verifying which Chatwoot user owns the API token.
+    // This also prevents wrong actor attribution and cross-user token misconfiguration.
+    try {
+      const profile = await clientFor(staff).profile();
+      if (Number(profile?.id) !== staff.agentId) return null;
+    } catch (error) {
+      if (error.status === 401 || error.status === 403) return null;
+      throw error;
+    }
   }
   return staff;
 }

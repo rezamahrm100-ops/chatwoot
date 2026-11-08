@@ -1,0 +1,49 @@
+name: Telegram unified bot checks
+
+on:
+  push:
+    branches:
+      - feat/unified-telegram-store-bot-20261109
+    paths:
+      - 'integrations/telegram-unified-bot/**'
+      - '.github/workflows/telegram-unified-bot-checks.yml'
+  pull_request:
+    branches: [develop]
+    paths:
+      - 'integrations/telegram-unified-bot/**'
+      - '.github/workflows/telegram-unified-bot-checks.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: telegram-unified-bot-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  node-and-docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    defaults:
+      run:
+        working-directory: integrations/telegram-unified-bot
+    steps:
+      - name: Checkout reviewed branch
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Use Node 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Validate JavaScript parsing
+        run: |
+          node --check src/security.mjs
+          node --check src/chatwoot.mjs
+          node --check src/server.mjs
+          node --check public/app.js
+      - name: Run unit and API contract tests
+        run: node --test test/*.test.mjs
+      - name: Build isolated adapter image (no deployment)
+        run: docker build -t chatwoot-unified-bot:ci .

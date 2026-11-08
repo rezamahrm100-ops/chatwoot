@@ -41,6 +41,7 @@ export class Chatwoot {
     return this.request('POST', '/conversations/' + Number(id) + '/assignments', { assignee_id: Number(agentId) });
   }
   agents() { return this.request('GET', '/agents'); }
+  profile() { return this.request('GET', '/api/v1/profile'); }
   contacts(page = 1) { return this.request('GET', '/contacts?page=' + page); }
   reportWindow(days = 30) {
     const until = Math.floor(Date.now() / 1000);
