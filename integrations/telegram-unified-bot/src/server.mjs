@@ -45,11 +45,9 @@ async function telegram(method, data) {
   return body.result;
 }
 
-function keyboard() {
-  const rows = [[
-    { text: 'گفتگوهای باز', callback_data: 'menu:inbox' },
-    { text: 'گزارش', callback_data: 'menu:stats' }
-  ]];
+function keyboard(staff) {
+  const rows = [[{ text: 'گفتگوهای باز', callback_data: 'menu:inbox' }]];
+  if (staff.role === 'owner') rows[0].push({ text: 'گزارش', callback_data: 'menu:stats' });
   if (config.publicUrl) rows.push([{ text: 'داشبورد مدیریت', web_app: { url: config.publicUrl + '/app' } }]);
   return { inline_keyboard: rows };
 }
@@ -179,7 +177,7 @@ async function incomingTelegram(payload) {
     return null;
   }
   const result = await performStaffAction(staff, payload.message.text);
-  await send(chat.id, result, /^\/start|^\/help/.test(payload.message.text) ? keyboard() : undefined);
+  await send(chat.id, result, /^\/(start|help)(?:\s|$)/.test(payload.message.text) ? keyboard(staff) : undefined);
   return null;
 }
 function respond(res, status, data, contentType = 'application/json; charset=utf-8') {
@@ -192,16 +190,18 @@ function respond(res, status, data, contentType = 'application/json; charset=utf
   res.end(contentType.startsWith('application/json') ? JSON.stringify(data) : data);
 }
 async function readJson(req) {
-  let body = '';
+  const chunks = [];
+  let size = 0;
   for await (const chunk of req) {
-    body += chunk;
-    if (body.length > 1024 * 1024) {
+    chunks.push(chunk);
+    size += chunk.length;
+    if (size > 1024 * 1024) {
       const error = Error('Payload too large');
       error.status = 413;
       throw error;
     }
   }
-  try { return JSON.parse(body || '{}'); } catch {
+  try { return JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}'); } catch {
     const error = Error('Invalid JSON');
     error.status = 400;
     throw error;
@@ -295,6 +295,8 @@ server.listen(config.port, '0.0.0.0', async () => {
       console.log('Telegram webhook registered');
     } catch (error) {
       console.error('Webhook registration failed:', error.message.replaceAll(config.token, '[redacted]'));
+      server.close();
+      process.exitCode = 1;
     }
   }
 });
