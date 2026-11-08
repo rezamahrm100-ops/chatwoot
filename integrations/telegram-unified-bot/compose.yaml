@@ -1,0 +1,14 @@
+services:
+  telegram-unified-bot:
+    build:
+      context: ./integrations/telegram-unified-bot
+    env_file:
+      - ./integrations/telegram-unified-bot/.env
+    environment:
+      CHATWOOT_BASE_URL: http://rails:3000
+      PORT: "8080"
+    ports:
+      - "127.0.0.1:8088:8080"
+    restart: unless-stopped
+    depends_on:
+      - rails
