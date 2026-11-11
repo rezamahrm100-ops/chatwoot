@@ -1,0 +1,88 @@
+name: Telegram unified bot checks
+
+on:
+  push:
+    branches:
+      - feat/unified-telegram-store-bot-20261109
+    paths:
+      - 'integrations/telegram-unified-bot/**'
+      - 'deploy/vps/**'
+      - '.github/workflows/telegram-unified-bot-checks.yml'
+  pull_request:
+    branches: [develop]
+    paths:
+      - 'integrations/telegram-unified-bot/**'
+      - '.github/workflows/telegram-unified-bot-checks.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: telegram-unified-bot-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  node-and-docker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    defaults:
+      run:
+        working-directory: integrations/telegram-unified-bot
+    steps:
+      - name: Checkout reviewed branch
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          persist-credentials: false
+      - name: Use Node 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Validate JavaScript parsing
+        run: |
+          node --check src/security.mjs
+          node --check src/chatwoot.mjs
+          node --check src/server.mjs
+          node --check public/app.js
+      - name: Run unit and API contract tests
+        run: node --test test/*.test.mjs
+      - name: Build isolated adapter image (no deployment)
+        run: docker build -t chatwoot-unified-bot:ci .
+      - name: Validate staged VPS deployment without launching services
+        working-directory: .
+        run: |
+          bash -n deploy/vps/vps.sh
+          bash deploy/vps/vps.sh prepare
+          bash deploy/vps/vps.sh check
+          docker compose --project-directory deploy/vps --env-file deploy/vps/.env -f deploy/vps/compose.yaml --profile bot --profile public config --quiet
+      - name: Export verified adapter image and checksum for owner installation
+        if: github.event_name == 'push'
+        run: |
+          mkdir -p release
+          docker save chatwoot-unified-bot:ci | gzip -1 > release/chatwoot-unified-bot-image.tar.gz
+          (cd release && sha256sum chatwoot-unified-bot-image.tar.gz > SHA256SUMS.txt)
+          (cd release && sha256sum -c SHA256SUMS.txt)
+      - name: Package no-secrets future-VPS deployment bundle and checksum
+        if: github.event_name == 'push'
+        working-directory: .
+        run: |
+          tar -czf integrations/telegram-unified-bot/release/chatwoot-store-vps-bundle.tar.gz \
+            deploy/vps/compose.yaml deploy/vps/Caddyfile deploy/vps/.env.example \
+            deploy/vps/.env.bot.example deploy/vps/vps.sh deploy/vps/README.md \
+            integrations/telegram-unified-bot/Dockerfile \
+            integrations/telegram-unified-bot/package.json \
+            integrations/telegram-unified-bot/src integrations/telegram-unified-bot/public
+          (cd integrations/telegram-unified-bot/release && sha256sum chatwoot-store-vps-bundle.tar.gz >> SHA256SUMS.txt)
+          (cd integrations/telegram-unified-bot/release && sha256sum -c SHA256SUMS.txt)
+      - name: Retain private-free installable image artifact
+        if: github.event_name == 'push'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: chatwoot-unified-telegram-image
+          path: |
+            integrations/telegram-unified-bot/release/chatwoot-unified-bot-image.tar.gz
+            integrations/telegram-unified-bot/release/chatwoot-store-vps-bundle.tar.gz
+            integrations/telegram-unified-bot/release/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0

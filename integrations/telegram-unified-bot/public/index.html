@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="fa" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#111827">
+  <title>مرکز مدیریت فروشگاه</title>
+  <link rel="stylesheet" href="/app.css">
+  <script src="https://telegram.org/js/telegram-web-app.js" defer></script>
+  <script src="/app.js" defer></script>
+</head>
+<body>
+  <header>
+    <span class="eyebrow">CHATWOOT × TELEGRAM</span>
+    <h1>مرکز مدیریت فروشگاه</h1>
+    <p id="who">در حال بررسی دسترسی...</p>
+  </header>
+  <nav id="tabs" aria-label="بخش‌های مدیریت">
+    <button data-tab="conversations" aria-pressed="true">گفتگوها</button>
+    <button data-tab="customers" aria-pressed="false">مشتریان</button>
+    <button data-tab="team" aria-pressed="false">پشتیبان‌ها</button>
+    <button data-tab="reports" aria-pressed="false">گزارش‌ها</button>
+  </nav>
+  <main>
+    <div id="toolbar" class="toolbar">
+      <label>وضعیت <select id="status"><option value="open">باز</option><option value="pending">در انتظار</option><option value="resolved">حل‌شده</option></select></label>
+      <button id="reload" class="subtle">بازخوانی</button>
+      <button id="previous" class="subtle">قبلی</button>
+      <span id="page-number" class="meta">۱</span>
+      <button id="next" class="subtle">بعدی</button>
+    </div>
+    <div id="notice" role="status"></div>
+    <section id="items" aria-live="polite"></section>
+    <section id="detail" hidden></section>
+  </main>
+</body>
+</html>
