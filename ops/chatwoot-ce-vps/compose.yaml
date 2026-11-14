@@ -1,0 +1,85 @@
+# Standalone Chatwoot Community Edition. Does not share volumes, ports or databases with Blinko/Newsroom.
+name: chatwoot_ce
+x-chatwoot-common: &chatwoot-common
+  image: chatwoot/chatwoot:v4.19.1-ce
+  env_file: .env
+  volumes:
+    - chatwoot_storage:/app/storage
+  networks:
+    - internal
+  restart: unless-stopped
+  logging:
+    options:
+      max-size: "10m"
+      max-file: "3"
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: chatwoot
+      POSTGRES_DB: chatwoot
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Run scripts/init-env.sh}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks: [internal]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U chatwoot -d chatwoot"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    mem_limit: 2g
+    logging:
+      options: {max-size: "10m", max-file: "3"}
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD:?Run scripts/init-env.sh}
+    command: ["sh", "-c", "exec redis-server --appendonly yes --requirepass \"$$REDIS_PASSWORD\""]
+    volumes:
+      - redis_data:/data
+    networks: [internal]
+    healthcheck:
+      test: ["CMD-SHELL", "REDISCLI_AUTH=\"$$REDIS_PASSWORD\" redis-cli ping | grep -q PONG"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    mem_limit: 512m
+    logging:
+      options: {max-size: "10m", max-file: "3"}
+  rails:
+    <<: *chatwoot-common
+    entrypoint: docker/entrypoints/rails.sh
+    command: ["bundle", "exec", "rails", "s", "-p", "3000", "-b", "0.0.0.0"]
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    environment:
+      NODE_ENV: production
+      RAILS_ENV: production
+      INSTALLATION_ENV: docker
+    ports:
+      - "127.0.0.1:3001:3000"
+    mem_limit: 3g
+  sidekiq:
+    <<: *chatwoot-common
+    command: ["bundle", "exec", "sidekiq", "-C", "config/sidekiq.yml"]
+    depends_on:
+      postgres: {condition: service_healthy}
+      redis: {condition: service_healthy}
+    environment:
+      NODE_ENV: production
+      RAILS_ENV: production
+      INSTALLATION_ENV: docker
+    mem_limit: 2g
+networks:
+  internal:
+    driver: bridge
+volumes:
+  postgres_data:
+    name: chatwoot_ce_postgres
+  redis_data:
+    name: chatwoot_ce_redis
+  chatwoot_storage:
+    name: chatwoot_ce_storage

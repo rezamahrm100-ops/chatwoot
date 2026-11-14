@@ -1,0 +1,140 @@
+name: Chatwoot CE standalone - validate, release, deploy
+on:
+  push:
+    branches: [main]
+    paths:
+      - compose.yaml
+      - scripts/**
+      - README-FA.md
+      - .github/workflows/chatwoot-ce.yml
+  workflow_dispatch:
+    inputs:
+      operation:
+        type: choice
+        required: true
+        options: [validate, deploy]
+        default: validate
+      release_tag:
+        description: 'Exact verified GitHub Release tag, e.g. chatwoot-ce-v0.1.10'
+        type: string
+        required: false
+      confirmation:
+        description: 'For deploy type DEPLOY_CHATWOOT_CE'
+        type: string
+        required: false
+      wicc_check:
+        description: 'Run optional static Windows check on a dedicated WICC runner'
+        type: boolean
+        default: false
+permissions:
+  contents: read
+concurrency:
+  group: chatwoot-ce-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Static safety checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash -n scripts/*.sh
+          test ! -f .env
+          test ! -d backups
+          # Generate throwaway CI credentials, never print Compose config or secrets.
+          bash scripts/init-env.sh
+          docker compose -f compose.yaml config --quiet
+          python3 - <<'PY'
+          from pathlib import Path
+          t = Path('compose.yaml').read_text()
+          for s in ('name: chatwoot_ce', 'chatwoot/chatwoot:v4.19.1-ce', '127.0.0.1:3001:3000', 'chatwoot_ce_postgres', 'chatwoot_ce_storage'):
+              assert s in t, s
+          for bad in ('docker compose down -v', 'docker system prune', '0.0.0.0:3001:3000'):
+              assert bad not in t, bad
+          print('CI_STATIC_OK')
+          PY
+      - name: Assemble immutable deployment package
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          tar --exclude=.env --exclude=backups --exclude=dist -czf dist/chatwoot-ce-deploy.tar.gz compose.yaml scripts README-FA.md .gitignore
+          (cd dist && sha256sum chatwoot-ce-deploy.tar.gz > SHA256SUMS)
+          printf '%s\n' "source_sha=${GITHUB_SHA}" > dist/SOURCE_SHA
+      - uses: actions/upload-artifact@v4
+        with:
+          name: chatwoot-ce-validated-${{ github.sha }}
+          path: dist/
+          retention-days: 7
+  wicc_static:
+    if: github.event_name == 'workflow_dispatch' && inputs.wicc_check == true && inputs.operation == 'validate'
+    runs-on: [self-hosted, Windows, X64, chatwoot-ce-wicc]
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - name: Static package inspection only (no secrets, Docker or VPS access)
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          foreach ($p in @('compose.yaml', 'scripts/init-env.sh', 'scripts/deploy.sh', 'README-FA.md')) {
+            if (-not (Test-Path $p)) { throw "Missing $p" }
+          }
+          $c = Get-Content compose.yaml -Raw
+          if ($c -notmatch 'chatwoot/chatwoot:v4\.19\.1-ce') { throw 'Expected official CE release only' }
+          Write-Host 'WICC_STATIC_OK'
+  release:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: validate
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: chatwoot-ce-validated-${{ github.sha }}
+          path: dist/
+      - name: Publish GitHub Release containing only validated deployment package
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          (cd dist && sha256sum -c SHA256SUMS)
+          tag="chatwoot-ce-v0.1.${GITHUB_RUN_NUMBER}"
+          gh release create "$tag" dist/chatwoot-ce-deploy.tar.gz dist/SHA256SUMS dist/SOURCE_SHA \
+            --title "$tag" --notes "Chatwoot CE v4.19.1 pinned deployment package. Source ${GITHUB_SHA}. No service is deployed by this Release."
+  deploy:
+    if: github.event_name == 'workflow_dispatch' && inputs.operation == 'deploy' && github.ref == 'refs/heads/main' && inputs.confirmation == 'DEPLOY_CHATWOOT_CE'
+    runs-on: [self-hosted, Linux, X64, chatwoot-ce-deploy]
+    environment: chatwoot-production
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    steps:
+      - name: Fetch and verify requested immutable Release on the dedicated VPS runner
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ inputs.release_tag }}
+          CHATWOOT_FRONTEND_URL: ${{ vars.CHATWOOT_FRONTEND_URL }}
+        run: |
+          set -euo pipefail
+          [[ "$TAG" =~ ^chatwoot-ce-v0\.1\.[0-9]+$ ]] || { echo 'Invalid Release tag' >&2; exit 1; }
+          command -v gh >/dev/null || { echo 'Install GitHub CLI for dedicated VPS runner' >&2; exit 1; }
+          work="$(mktemp -d)"
+          trap 'rm -rf "$work"' EXIT
+          gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --dir "$work" \
+            -p chatwoot-ce-deploy.tar.gz -p SHA256SUMS -p SOURCE_SHA
+          (cd "$work" && sha256sum -c SHA256SUMS)
+          mkdir "$work/package"
+          tar -xzf "$work/chatwoot-ce-deploy.tar.gz" -C "$work/package"
+          cd "$work/package"
+          bash scripts/deploy.sh
+          bash /opt/chatwoot-ce/scripts/health.sh
