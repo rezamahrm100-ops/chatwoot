@@ -11,7 +11,7 @@ DEST="${CHATWOOT_STACK_DIR:-/opt/chatwoot-ce}"
 # Read-only checks first, without touching existing projects or existing .env.
 if [[ -f "$DEST/.env" ]]; then
   (cd "$DEST" && bash scripts/preflight.sh)
-  if docker compose -f "$DEST/compose.yaml" ps --status running --services | grep -qx postgres; then
+  if (cd "$DEST" && docker compose -f compose.yaml ps --status running --services) | grep -qx postgres; then
     (cd "$DEST" && bash scripts/backup.sh)
   fi
 fi
