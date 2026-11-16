@@ -9,6 +9,9 @@ permissions:
 
 jobs:
   publish-code-space-image:
+    # Only upstream Chatwoot may publish into the upstream GHCR namespace.
+    # Keep owner forks fail-closed, including manually dispatched workflows.
+    if: github.repository == 'chatwoot/chatwoot'
     runs-on: ubuntu-latest
 
     steps:
